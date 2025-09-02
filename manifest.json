@@ -1,0 +1,15 @@
+{
+	"manifest_version": 2.0, 
+	"id": "top_pisk", 
+	"type": "widget", 
+	"name": "Top Pisk", 
+	"namespace": "TopPisk", 
+	"version": "1.0", 
+	"author": "peppe",
+	"actions": {
+		"widget.TopPisk.view": {
+			"class": "WidgetView"
+		}
+	}
+}
+
