@@ -1,15 +1,14 @@
 {
-	"manifest_version": 2.0, 
-	"id": "top_pisk", 
-	"type": "widget", 
-	"name": "Top Pisk", 
-	"namespace": "TopPisk", 
-	"version": "1.0", 
-	"author": "peppe",
+	"manifest_version": 2.0,
+	"id": "basic_widget",
+	"type": "widget",
+	"name": "Basic Widget",
+	"namespace": "BasicWidget",
+	"version": "1.1",
+	"author": "Manuello1996",
 	"actions": {
-		"widget.TopPisk.view": {
+		"widget.basic_widget.view": {
 			"class": "WidgetView"
 		}
 	}
 }
-
