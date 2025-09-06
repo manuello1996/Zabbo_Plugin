@@ -5,17 +5,37 @@
  * @var array $data
  */
 
-// Build table: HOST | Item name | Last value (bar for %)
+// Build table: HOST | Item | Last value
 $table = (new CTableInfo())
     ->setHeader([_('Host'), _('Item'), _('Last value')]);
 
 $hosts = $data['hosts'] ?? [];
 
-// Only show hosts that have matching items.
+// ---- Read settings (with safe defaults) ----
+$warn = isset($data['fields_values']['threshold_warn']) && is_numeric($data['fields_values']['threshold_warn'])
+    ? (float)$data['fields_values']['threshold_warn'] : 80.0;
+
+$crit = isset($data['fields_values']['threshold_crit']) && is_numeric($data['fields_values']['threshold_crit'])
+    ? (float)$data['fields_values']['threshold_crit'] : 90.0;
+
+// Colors are saved as 6-hex (no '#') by CWidgetFieldColor.
+$color_warn_hex = strtoupper(trim((string)($data['fields_values']['color_warn'] ?? ''))) ?: 'E67E22'; // orange
+$color_crit_hex = strtoupper(trim((string)($data['fields_values']['color_crit'] ?? ''))) ?: 'E74C3C'; // red
+$color_ok_hex   = '5FB760'; // green for "OK" (fixed default)
+
+// Normalize thresholds to 0..100 and ensure $warn <= $crit.
+$warn = max(0.0, min(100.0, $warn));
+$crit = max(0.0, min(100.0, $crit));
+if ($warn > $crit) {
+    [$warn, $crit] = [$crit, $warn];
+}
+
+// ---- Table rows ----
 foreach ($hosts as $host) {
     $items = $host['items'] ?? [];
     if (empty($items)) {
-        continue; // skip hosts without matches
+        // Skip hosts without matching items
+        continue;
     }
 
     $host_name = $host['name'] ?? ($host['host'] ?? '');
@@ -23,36 +43,52 @@ foreach ($hosts as $host) {
     foreach ($items as $it) {
         $val_raw = $it['lastvalue'] ?? null;
         $units   = $it['units'] ?? '';
-        $val_txt = $val_raw;
 
-        $value_cell = null;
-
-        // If units are "%", render a small bar + numeric value.
+        // If units are %, show progress bar with thresholds; else plain value.
         if ($units === '%') {
-            // normalize to float and clamp to [0,100] to avoid broken bars
             $p = is_numeric($val_raw) ? (float)$val_raw : 0.0;
+            // Clamp for bar display
             if ($p < 0)   $p = 0.0;
             if ($p > 100) $p = 100.0;
 
-            // Tiny inline progress bar using Zabbix HTML wrappers (CTag/CDiv/CSpan).
-            // This uses standard HTML + Zabbix's tag helpers; no custom JS needed.
-            $bar_outer = (new CDiv())
-                ->addClass('progress')                // generic class name; Zabbix keeps it unstyled by default
-                ->setAttribute('style', 'width:120px;height:10px;border:1px solid #ccc;border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px;');
+            // Choose bar color by thresholds
+            if ($p > $crit) {
+                $bar_color_hex = $color_crit_hex;
+            }
+            elseif ($p > $warn) {
+                $bar_color_hex = $color_warn_hex;
+            }
+            else {
+                $bar_color_hex = $color_ok_hex;
+            }
 
+            // Bar container
+            $bar_outer = (new CDiv())
+                ->setAttribute('style',
+                    'width:120px;height:10px;border:1px solid #ccc;border-radius:2px;'.
+                    'overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px;'
+                );
+
+            // Bar fill
             $bar_inner = (new CDiv())
-                ->addClass('progress-bar')
-                ->setAttribute('style', 'height:100%;width:'.(int)$p.'%;background:#5fb760;'); // green-ish fill
+                ->setAttribute('style',
+                    'height:100%;width:'.(int)$p.'%;background:#'.$bar_color_hex.';'
+                );
 
             $bar_outer->addItem($bar_inner);
 
-            // Numeric label next to bar.
-            $value_cell = new CSpan(sprintf('%.2f%%', is_numeric($val_raw) ? (float)$val_raw : 0.0));
-            $value_cell = [$bar_outer, $value_cell];
+            $value_cell = [
+                $bar_outer,
+                new CSpan(sprintf('%.2f%%', is_numeric($val_raw) ? (float)$val_raw : 0.0))
+            ];
         }
         else {
-            // Non-% units: just show value + units.
-            $value_cell = trim((string)$val_txt.' '.(string)$units);
+            // Non-%: just show value + units
+            $txt = (string)$val_raw;
+            if ($units !== '') {
+                $txt .= ' '.$units;
+            }
+            $value_cell = $txt;
         }
 
         $table->addRow([
@@ -67,5 +103,5 @@ foreach ($hosts as $host) {
 (new CWidgetView($data))
     ->addItem($table)
 	->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))
-    ->show();
 
+    ->show();
