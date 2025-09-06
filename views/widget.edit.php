@@ -20,6 +20,9 @@ $form
     ->addField(new CWidgetFieldNumericBoxView($data['fields']['threshold_crit']))
     ->addField(new CWidgetFieldColorView($data['fields']['color_crit']))
 
+    ->addField(new CWidgetFieldNumericBoxView($data['fields']['max_items']))
+    ->addField(new CWidgetFieldSelectView($data['fields']['sortorder']))
+
     // Load the small JS helper to activate the color pickers and set the palette
     ->includeJsFile('widget.edit.js.php')
     ->addJavaScript('basic_widget_form.init('.json_encode([
