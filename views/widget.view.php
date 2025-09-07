@@ -66,5 +66,5 @@ foreach ($rows as $r) {
 
 (new CWidgetView($data))
     ->addItem($table)
-    ->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))
+    ->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))  
     ->show();

@@ -1,14 +1,20 @@
 {
-	"manifest_version": 2.0,
-	"id": "basic_widget",
-	"type": "widget",
-	"name": "Basic Widget",
-	"namespace": "BasicWidget",
-	"version": "1.1",
-	"author": "Manuello1996",
-	"actions": {
-		"widget.basic_widget.view": {
-			"class": "WidgetView"
-		}
-	}
+    "manifest_version": 2.0,
+    "id": "basic_widget",
+    "type": "widget",
+    "name": "Basic Widget",
+    "description": "A customizable widget for displaying monitored items with threshold-based visualization",
+    "namespace": "BasicWidget",
+    "version": "1.2.0",
+    "author": "Manuello1996",
+    "min_zabbix_version": "6.0",
+    "actions": {
+        "widget.basic_widget.view": {
+            "class": "WidgetView",
+            "view": "widget.view"
+        }
+    },
+    "js": [
+        "widget.edit.js.php"
+    ]
 }

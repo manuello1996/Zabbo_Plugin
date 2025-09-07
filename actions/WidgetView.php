@@ -1,4 +1,4 @@
-<?php declare(strict_types = 0);
+<?php declare(strict_types=1);
 
 namespace Modules\BasicWidget\Actions;
 
@@ -6,116 +6,224 @@ use API;
 use CControllerDashboardWidgetView;
 use CControllerResponseData;
 
-class WidgetView extends CControllerDashboardWidgetView {
+/**
+ * Controller for BasicWidget dashboard widget view
+ */
+class WidgetView extends CControllerDashboardWidgetView
+{
+    private const DEFAULT_MAX_ITEMS = 100;
+    private const MIN_ITEMS = 1;
+    private const MAX_ITEMS = 10000;
+    private const SORT_ASC = 0;
+    private const SORT_DESC = 1;
 
-    protected function doAction(): void {
-        $fv = $this->fields_values;
+    protected function doAction(): void
+    {
+        $fields_values = $this->fields_values;
 
-        $groupids  = array_map('intval', (array)($fv['groupids'] ?? []));
-        $patterns  = array_values(array_filter((array)($fv['items'] ?? []), 'strlen'));
-
-        // Limit (default 100; clamp 1..10000)
-        $max_items = (int)($fv['max_items'] ?? 100);
-        $max_items = max(1, min(10000, $max_items));
-
-        // Map integer select to ASC/DESC (0 = ASC, 1 = DESC)
-        $sort_flag = isset($fv['sortorder']) ? (int)$fv['sortorder'] : 1;
-        $sortorder = ($sort_flag === 0) ? 'ASC' : 'DESC';
-
-        // 1) Hosts
-        $hosts = [];
-        if ($groupids) {
-            $hosts = API::Host()->get([
-                'groupids'        => $groupids,
-                'output'          => ['hostid','host','name'],
-                'monitored_hosts' => true,
-                'preservekeys'    => true
-            ]);
-        }
-
-        // 2) Items (respect overall cap across patterns)
-        $items_by_host = [];
-        if ($hosts && $patterns) {
-            $hostids   = array_keys($hosts);
-            $remaining = $max_items;
-
-            foreach ($patterns as $pattern) {
-                if ($remaining <= 0) break;
-
-                $items = API::Item()->get([
-                    'hostids'                => $hostids,
-                    'search'                 => ['name' => $pattern],
-                    'searchWildcardsEnabled' => true,
-                    'output'                 => ['itemid','hostid','name','key_','lastvalue','lastclock','value_type','units'],
-                    'sortfield'              => 'name',
-                    'limit'                  => $remaining
-                ]);
-
-                foreach ($items as $it) {
-                    $items_by_host[(int)$it['hostid']][] = $it;
-                }
-                $remaining -= count($items);
-            }
-        }
-
-        // 3) Flatten rows (skip hosts without matches)
-        $rows = [];
-        foreach ($hosts as $hid => $h) {
-            $host_items = $items_by_host[(int)$hid] ?? [];
-            if (!$host_items) {
-                continue;
-            }
-
-            $host_name = $h['name'] !== '' ? $h['name'] : $h['host'];
-
-            foreach ($host_items as $it) {
-                $val_raw = $it['lastvalue'] ?? null;
-                $units   = $it['units'] ?? '';
-
-                // Derive numeric for sorting: numbers first, non-numeric last
-                $sort_num = is_numeric($val_raw) ? (float)$val_raw : null;
-
-                $rows[] = [
-                    'host'      => $host_name,
-                    'item'      => $it['name'],
-                    'units'     => $units,
-                    'lastvalue' => $val_raw,
-                    'lastclock' => isset($it['lastclock']) ? (int)$it['lastclock'] : null,
-                    'sort_num'  => $sort_num
-                ];
-            }
-        }
-
-        // 4) Sort by last value according to sortorder (always sort; it’s the only sortable col)
-        usort($rows, function($a, $b) use ($sortorder) {
-            $dir = ($sortorder === 'ASC') ? 1 : -1;
-            $an = $a['sort_num']; $bn = $b['sort_num'];
-
-            if ($an === null && $bn === null) {
-                // stable tie-breakers
-                $t = strnatcasecmp((string)$a['host'], (string)$b['host']);
-                if ($t !== 0) return $dir * $t;
-                return $dir * strnatcasecmp((string)$a['item'], (string)$b['item']);
-            }
-            if ($an === null) return 1;
-            if ($bn === null) return -1;
-            if ($an == $bn) {
-                $t = strnatcasecmp((string)$a['host'], (string)$b['host']);
-                if ($t !== 0) return $dir * $t;
-                return $dir * strnatcasecmp((string)$a['item'], (string)$b['item']);
-            }
-            return $dir * (($an < $bn) ? -1 : 1);
-        });
-
-        // 5) Enforce final cap after sorting (defensive)
-        if (count($rows) > $max_items) {
-            $rows = array_slice($rows, 0, $max_items);
+        // Extract and validate configuration
+        $config = $this->extractConfiguration($fields_values);
+        
+        // Get hosts based on group selection
+        $hosts = $this->getHosts($config['groupids']);
+        
+        // Get items for the hosts based on patterns
+        $items_by_host = $this->getItems($hosts, $config['patterns'], $config['max_items']);
+        
+        // Build result rows
+        $rows = $this->buildResultRows($hosts, $items_by_host);
+        
+        // Sort rows according to configuration
+        $this->sortRows($rows, $config['sortorder']);
+        
+        // Apply final item limit
+        if (count($rows) > $config['max_items']) {
+            $rows = array_slice($rows, 0, $config['max_items']);
         }
 
         $this->setResponse(new CControllerResponseData([
-            'name'          => $this->getInput('name', $this->widget->getName()),
-            'fields_values' => $fv,
-            'rows'          => $rows
+            'name' => $this->getInput('name', $this->widget->getName()),
+            'fields_values' => $fields_values,
+            'rows' => $rows
         ]));
+    }
+
+    /**
+     * Extract and validate configuration from field values
+     */
+    private function extractConfiguration(array $fields_values): array
+    {
+        $groupids = array_map('intval', (array)($fields_values['groupids'] ?? []));
+        $patterns = array_values(array_filter((array)($fields_values['items'] ?? []), 'strlen'));
+        
+        // Validate and clamp max_items
+        $max_items = (int)($fields_values['max_items'] ?? self::DEFAULT_MAX_ITEMS);
+        $max_items = max(self::MIN_ITEMS, min(self::MAX_ITEMS, $max_items));
+        
+        // Validate sort order
+        $sort_flag = isset($fields_values['sortorder']) ? (int)$fields_values['sortorder'] : self::SORT_DESC;
+        $sortorder = ($sort_flag === self::SORT_ASC) ? 'ASC' : 'DESC';
+
+        return [
+            'groupids' => $groupids,
+            'patterns' => $patterns,
+            'max_items' => $max_items,
+            'sortorder' => $sortorder
+        ];
+    }
+
+    /**
+     * Get hosts from specified groups
+     */
+    private function getHosts(array $groupids): array
+    {
+        if (empty($groupids)) {
+            return [];
+        }
+
+        try {
+            return API::Host()->get([
+                'groupids' => $groupids,
+                'output' => ['hostid', 'host', 'name'],
+                'monitored_hosts' => true,
+                'preservekeys' => true
+            ]) ?: [];
+        } catch (\Exception $e) {
+            error_log("Error fetching hosts: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get items for hosts based on patterns
+     */
+    private function getItems(array $hosts, array $patterns, int $max_items): array
+    {
+        if (empty($hosts) || empty($patterns)) {
+            return [];
+        }
+
+        $hostids = array_keys($hosts);
+        $items_by_host = [];
+        $remaining = $max_items;
+
+        foreach ($patterns as $pattern) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            try {
+                $items = API::Item()->get([
+                    'hostids' => $hostids,
+                    'search' => ['name' => $pattern],
+                    'searchWildcardsEnabled' => true,
+                    'output' => ['itemid', 'hostid', 'name', 'key_', 'lastvalue', 'lastclock', 'value_type', 'units'],
+                    'sortfield' => 'name',
+                    'limit' => $remaining
+                ]) ?: [];
+
+                foreach ($items as $item) {
+                    $hostid = (int)$item['hostid'];
+                    $items_by_host[$hostid][] = $item;
+                }
+                
+                $remaining -= count($items);
+                
+            } catch (\Exception $e) {
+                error_log("Error fetching items for pattern '$pattern': " . $e->getMessage());
+                continue;
+            }
+        }
+
+        return $items_by_host;
+    }
+
+    /**
+     * Build result rows from hosts and items
+     */
+    private function buildResultRows(array $hosts, array $items_by_host): array
+    {
+        $rows = [];
+
+        foreach ($hosts as $host_id => $host) {
+            $host_items = $items_by_host[(int)$host_id] ?? [];
+            
+            if (empty($host_items)) {
+                continue;
+            }
+
+            $host_name = !empty($host['name']) ? $host['name'] : $host['host'];
+
+            foreach ($host_items as $item) {
+                $rows[] = $this->createRowData($host_name, $item);
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Create row data structure
+     */
+    private function createRowData(string $host_name, array $item): array
+    {
+        $last_value = $item['lastvalue'] ?? null;
+        $units = $item['units'] ?? '';
+        
+        // Convert numeric values for sorting
+        $sort_num = is_numeric($last_value) ? (float)$last_value : null;
+
+        return [
+            'host' => $host_name,
+            'item' => $item['name'],
+            'units' => $units,
+            'lastvalue' => $last_value,
+            'lastclock' => isset($item['lastclock']) ? (int)$item['lastclock'] : null,
+            'sort_num' => $sort_num
+        ];
+    }
+
+    /**
+     * Sort rows by last value with stable tie-breaking
+     */
+    private function sortRows(array &$rows, string $sortorder): void
+    {
+        $direction = ($sortorder === 'ASC') ? 1 : -1;
+
+        usort($rows, function ($a, $b) use ($direction) {
+            $a_num = $a['sort_num'];
+            $b_num = $b['sort_num'];
+
+            // Both null - use tie breakers
+            if ($a_num === null && $b_num === null) {
+                return $this->compareByTieBreakers($a, $b, $direction);
+            }
+
+            // Null values always go last regardless of sort direction
+            if ($a_num === null) return 1;
+            if ($b_num === null) return -1;
+
+            // Both numeric - compare values
+            if ($a_num == $b_num) {
+                return $this->compareByTieBreakers($a, $b, $direction);
+            }
+
+            return $direction * ($a_num <=> $b_num);
+        });
+    }
+
+    /**
+     * Compare rows by tie-breaker fields (host, then item name)
+     */
+    private function compareByTieBreakers(array $a, array $b, int $direction): int
+    {
+        // First tie-breaker: host name
+        $host_comparison = strnatcasecmp((string)$a['host'], (string)$b['host']);
+        if ($host_comparison !== 0) {
+            return $direction * $host_comparison;
+        }
+
+        // Second tie-breaker: item name
+        return $direction * strnatcasecmp((string)$a['item'], (string)$b['item']);
     }
 }
