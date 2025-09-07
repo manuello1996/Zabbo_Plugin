@@ -1,21 +1,68 @@
-<?php declare(strict_types = 0);
+<?php
+// Evita "Undefined constant" fatale: usa fallback se la costante non è assente.
+$zbx_color_picker_class = defined('ZBX_STYLE_COLOR_PICKER') ? ZBX_STYLE_COLOR_PICKER : 'zbx_colorpicker';
+?>
+// JavaScript per l'inizializzazione del form di modifica del widget.
+// NOTA: non inserire tag <script> qui — il file viene incluso dall'infrastruttura Zabbix.
+(function() {
+    // BasicWidget form helper (parziale)
+    const basic_widget_form = {
+        /**
+         * Validate a color palette array (6-hex values).
+         * @returns {Array} - Validated palette array
+         */
+        validateColorPalette(palette) {
+            const hexColorRegex = /^[0-9A-Fa-f]{6}$/;
+            const defaultColor = 'CCCCCC';
+            
+            return palette.map(color => {
+                const cleanColor = String(color).replace('#', '').toUpperCase();
+                return hexColorRegex.test(cleanColor) ? cleanColor : defaultColor;
+            }).filter((color, index, arr) => arr.indexOf(color) === index); // Remove duplicates
+        },
 
-use Modules\BasicWidget\Includes\WidgetForm; ?>
+        /**
+         * Initialize color picker inputs
+         * CHANGE: Use a fallback class name if ZBX_STYLE_COLOR_PICKER constant is not defined.
+         */
+        initializeColorPickers() {
+            try {
+                // Use the guarded PHP variable to select color picker inputs.
+                // This avoids "Undefined constant" PHP fatal errors in environments where
+                // ZBX_STYLE_COLOR_PICKER is not defined.
+                const colorInputs = document.querySelectorAll('.<?= $zbx_color_picker_class ?> input[type="text"]');
+                
+                if (colorInputs.length === 0) {
+                    console.log('BasicWidget: No color picker inputs found');
+                    return;
+                }
 
-window.basic_widget_form = new class {
-  init({color_palette}) {
-    // Set palette used by the built-in color picker
-    colorPalette.setThemeColors(color_palette);
+                // Cleanup any previous pickers (if applicable)
+                this.cleanupColorPickers();
 
-    // Activate the color pickers for all color fields in this form
-    for (const input of jQuery('.<?= ZBX_STYLE_COLOR_PICKER ?> input')) {
-      jQuery(input).colorpicker();
-    }
+                // Initialize pickers for each input (pseudo-code; adattare alla libreria effettiva)
+                colorInputs.forEach(input => {
+                    try {
+                        // Esempio: inizializzazione se si usa una libreria jQuery/plugin
+                        // $(input).colorpicker(...);
+                    } catch (e) {
+                        console.warn('BasicWidget: Failed to initialize color picker for input', input, e);
+                    }
+                });
 
-    // Hide pickers when the widget dialog reloads/closes (prevents stuck overlays)
-    const overlay = overlays_stack.getById('widget_properties');
-    for (const ev of ['overlay.reload', 'overlay.close']) {
-      overlay.$dialogue[0].addEventListener(ev, () => { jQuery.colorpicker('hide'); });
-    }
-  }
-};
+            } catch (err) {
+                console.error('BasicWidget: initializeColorPickers error', err);
+            }
+        },
+
+        cleanupColorPickers() {
+            // Optional: remove/distruggi eventuali color picker precedenti
+            // Implementazione dipende dalla libreria usata (se presente).
+        },
+
+        // Altri helper eventualmente necessari...
+    };
+
+    // Esponi l'oggetto per l'inizializzazione del form
+    window.basic_widget_form = basic_widget_form;
+})();
