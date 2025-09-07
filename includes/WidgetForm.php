@@ -66,7 +66,8 @@ class WidgetForm extends CWidgetForm
     {
         return $this
             ->addField(
-                new CWidgetFieldMultiSelectGroup('groupids', _('Host group'))
+                (new CWidgetFieldMultiSelectGroup('groupids', _('Host group')))
+                    ->setFlags(CWidgetField::FLAG_NOT_EMPTY | CWidgetField::FLAG_LABEL_ASTERISK)
             )
             ->addField(
                 (new CWidgetFieldPatternSelectItem('items', _('Item patterns')))
