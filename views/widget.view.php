@@ -90,6 +90,9 @@ foreach ($rows as $r) {
 
 (new CWidgetView($data))
     ->addItem($table)
+    
     // ADDED (unchanged): show debug JSON to inspect row data during review
-    ->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))
+    // CHANGE: Commented to shut hide debug info
+    //->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))
+    
     ->show();
