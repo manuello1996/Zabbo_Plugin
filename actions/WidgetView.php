@@ -8,6 +8,10 @@ use CControllerResponseData;
 
 /**
  * Controller for BasicWidget dashboard widget view
+ *
+ * NOTE (CHANGE): This file was extended to annotate rows with 'display' => 'bar'
+ * and a normalized 'value_percent' (0..100) so the front-end can render numeric items as bars.
+ * All edits are labeled with "CHANGE" comments.
  */
 class WidgetView extends CControllerDashboardWidgetView
 {
@@ -40,6 +44,10 @@ class WidgetView extends CControllerDashboardWidgetView
         if (count($rows) > $config['max_items']) {
             $rows = array_slice($rows, 0, $config['max_items']);
         }
+
+        // CHANGE: Annotate rows with display metadata and compute normalized percentage
+        // so front-end can render numeric items as bars.
+        $this->applyBarDisplay($rows);
 
         $this->setResponse(new CControllerResponseData([
             'name' => $this->getInput('name', $this->widget->getName()),
@@ -164,6 +172,10 @@ class WidgetView extends CControllerDashboardWidgetView
 
     /**
      * Create row data structure
+     *
+     * CHANGE: Add 'display' and 'value_percent' fields.
+     * - 'display' => 'bar' indicates the front-end should consider a bar layout for the row.
+     * - 'value_percent' will be filled by applyBarDisplay() with integer 0..100 for numeric rows.
      */
     private function createRowData(string $host_name, array $item): array
     {
@@ -179,7 +191,11 @@ class WidgetView extends CControllerDashboardWidgetView
             'units' => $units,
             'lastvalue' => $last_value,
             'lastclock' => isset($item['lastclock']) ? (int)$item['lastclock'] : null,
-            'sort_num' => $sort_num
+            'sort_num' => $sort_num,
+            // CHANGE: default display type for front-end: 'bar'
+            'display' => 'bar',
+            // CHANGE: placeholder for normalized percentage (computed later)
+            'value_percent' => null
         ];
     }
 
@@ -225,5 +241,69 @@ class WidgetView extends CControllerDashboardWidgetView
 
         // Second tie-breaker: item name
         return $direction * strnatcasecmp((string)$a['item'], (string)$b['item']);
+    }
+
+    /**
+     * CHANGE: New helper that annotates rows so they can be rendered as bars in the front-end.
+     *
+     * Steps:
+     * - Find the numeric min and max among rows with numeric 'sort_num'.
+     * - For each row with numeric 'sort_num', compute a 0..100 percentage (value_percent).
+     *   If all numeric values are equal, set 100% so bars are visible.
+     * - Non-numeric rows keep value_percent = null (front-end can display a placeholder).
+     *
+     * This function mutates $rows in-place.
+     */
+    private function applyBarDisplay(array &$rows): void
+    {
+        $min = null;
+        $max = null;
+
+        // Determine min and max numeric values across all rows
+        foreach ($rows as $r) {
+            if (!isset($r['sort_num']) || $r['sort_num'] === null) {
+                continue;
+            }
+            $val = (float)$r['sort_num'];
+            if ($min === null || $val < $min) {
+                $min = $val;
+            }
+            if ($max === null || $val > $max) {
+                $max = $val;
+            }
+        }
+
+        // Compute normalized percentage for each row
+        foreach ($rows as &$r) {
+            // Ensure we keep display flag (already set in createRowData). Reinforce it here.
+            $r['display'] = 'bar';
+
+            if (!isset($r['sort_num']) || $r['sort_num'] === null) {
+                // Non-numeric values: leave percent null so front-end can treat specially
+                $r['value_percent'] = null;
+                continue;
+            }
+
+            $value = (float)$r['sort_num'];
+
+            if ($min === null || $max === null) {
+                // Shouldn't happen: no numeric rows found. Set null for safety.
+                $r['value_percent'] = null;
+                continue;
+            }
+
+            if ($max === $min) {
+                // All numeric values identical -> show full bars (100%) for visibility.
+                $percent = 100;
+            } else {
+                // Normalize value to 0..100 range
+                $percent = (($value - $min) / ($max - $min)) * 100;
+            }
+
+            // Clamp and cast to integer percentage for simpler rendering
+            $percent = max(0, min(100, (int)round($percent)));
+            $r['value_percent'] = $percent;
+        }
+        unset($r);
     }
 }
