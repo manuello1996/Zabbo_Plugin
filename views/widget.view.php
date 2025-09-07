@@ -32,13 +32,26 @@ foreach ($rows as $r) {
     $units = $r['units'] ?? '';
     $val   = $r['lastvalue'];
 
-    if ($units === '%') {
-        $p = is_numeric($val) ? (float)$val : 0.0;
-        $p = max(0.0, min(100.0, $p));
+    // CHANGE: Prefer server-calculated normalized percentage (value_percent) for bar width.
+    // If value_percent is present and numeric, render a bar using that width.
+    // This allows us to show bars for all numeric items consistently.
+    $p = null;
+    if (isset($r['value_percent']) && is_numeric($r['value_percent'])) {
+        $p = (int)$r['value_percent'];
+    } else {
+        // Fallback: if units are '%' and lastvalue numeric, use that percentage.
+        if ($units === '%' && is_numeric($val)) {
+            $tmp = (float)$val;
+            $p = max(0, min(100, (int)round($tmp)));
+        }
+        // Otherwise leave $p as null; no safe global normalization available on front-end.
+    }
 
-        if      ($p > $crit) $bar_hex = $color_crit_hex;
-        elseif  ($p > $warn) $bar_hex = $color_warn_hex;
-        else                 $bar_hex = $color_ok_hex;
+    if ($p !== null) {
+        // Determine bar color based on thresholds (thresholds are percentage-based).
+        if ($p > $crit) $bar_hex = $color_crit_hex;
+        elseif ($p > $warn) $bar_hex = $color_warn_hex;
+        else $bar_hex = $color_ok_hex;
 
         $bar_outer = (new CDiv())
             ->setAttribute(
@@ -47,17 +60,28 @@ foreach ($rows as $r) {
                 'overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px;'
             );
 
+        // CHANGE: use server normalized width ($p) to draw bar_inner width
         $bar_inner = (new CDiv())
             ->setAttribute('style', 'height:100%;width:'.(int)$p.'%;background:#'.$bar_hex.';');
 
         $bar_outer->addItem($bar_inner);
 
-        $value_cell = [
-            $bar_outer,
-            new CSpan(sprintf('%.2f%%', is_numeric($val) ? (float)$val : 0.0))
-        ];
+        // Format the numeric display: if units == '%' show percent with 2 decimals,
+        // otherwise show numeric value + units.
+        if ($units === '%') {
+            $value_cell = [
+                $bar_outer,
+                new CSpan(sprintf('%.2f%%', is_numeric($val) ? (float)$val : 0.0))
+            ];
+        } else {
+            // Show raw value with units (if present) — keep original numeric precision
+            $value_text = is_numeric($val) ? (string)$val : (string)$val;
+            $value_text .= ($units !== '' ? ' '.$units : '');
+            $value_cell = [$bar_outer, new CSpan($value_text)];
+        }
     }
     else {
+        // Non-numeric or no percentage available -> plain display (unchanged)
         $value_cell = (string)$val . ($units !== '' ? ' '.$units : '');
     }
 
@@ -66,5 +90,9 @@ foreach ($rows as $r) {
 
 (new CWidgetView($data))
     ->addItem($table)
-    ->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))  
+    
+    // ADDED (unchanged): show debug JSON to inspect row data during review
+    // CHANGE: Commented to shut hide debug info
+    //->addItem(new CTag('pre', true, json_encode($data, JSON_PRETTY_PRINT)))
+    
     ->show();
